@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Drop Organizador</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background-color: #f4f4f9; padding: 20px; margin: 0; display: flex; flex-direction: column; align-items: center; }
+        .container { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 420px; box-sizing: border-box; }
+        .section { margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
+        .section:last-child { border: none; margin-bottom: 0; padding-bottom: 0; }
+        h3 { margin-top: 0; color: #333; }
+        .input-group { display: flex; gap: 8px; margin-top: 10px; }
+        input[type="text"], select { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; }
+        .btn { background-color: #007bff; color: white; padding: 10px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: bold; }
+        .btn-success { background-color: #28a745; width: 100%; padding: 12px; font-size: 16px; margin-top: 15px; }
+        .file-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; margin-top: 10px; }
+        .file-wrapper input[type=file] { position: absolute; left: 0; top: 0; opacity: 0; font-size: 100px; cursor: pointer; }
+        .btn-outline { background: transparent; border: 1px solid #007bff; color: #007bff; width: 100%; padding: 10px; }
+        #file-list { margin-top: 8px; font-size: 14px; color: #666; text-align: left; }
+        .progress-container { width: 100%; background: #e0e0e0; border-radius: 6px; margin-top: 15px; display: none; overflow: hidden; }
+        .progress-bar { height: 16px; background: #28a745; width: 0%; transition: width 0.1s; }
+        #status { margin-top: 10px; font-weight: bold; font-size: 14px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="section">
+            <h3>1. Escolha ou Crie uma Pasta</h3>
+            <select id="folderSelect">
+                <option value="">Raiz (Sem pasta)</option>
+            </select>
+            
+            <div class="input-group">
+                <input type="text" id="newFolderInput" placeholder="Nome da nova pasta...">
+                <button class="btn" id="createFolderBtn">Criar</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>2. Selecione os Arquivos</h3>
+            <div class="file-wrapper">
+                <button class="btn btn-outline">Escolher Imagens / Vídeos</button>
+                <input type="file" id="fileInput" multiple>
+            </div>
+            <div id="file-list">Nenhum arquivo selecionado</div>
+
+            <button class="btn btn-success" id="uploadBtn">Iniciar Upload</button>
+
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <div id="status"></div>
+            <div class="section" style="margin-top: 20px;">
+                <h3>Arquivos na Pasta</h3>
+                <ul id="serverFileList" style="list-style: none; padding: 0; font-size: 14px; text-align: left;"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+            const folderSelect = document.getElementById('folderSelect');
+const newFolderInput = document.getElementById('newFolderInput');
+const createFolderBtn = document.getElementById('createFolderBtn');
+const fileInput = document.getElementById('fileInput');
+const fileList = document.getElementById('file-list');
+const uploadBtn = document.getElementById('uploadBtn');
+const progressContainer = document.getElementById('progressContainer');
+const progressBar = document.getElementById('progressBar');
+const status = document.getElementById('status');
+const serverFileList = document.getElementById('serverFileList');
+
+const CHUNK_SIZE = 5 * 1024 * 1024; 
+
+async function loadFolders() {
+    try {
+        const res = await fetch('/folders');
+        if (!res.ok) throw new Error('Falha ao carregar pastas');
+        const folders = await res.json();
+        
+        const currentSelection = folderSelect.value;
+        folderSelect.innerHTML = '<option value="">Raiz (Sem pasta)</option>';
+        folders.forEach(f => folderSelect.add(new Option(f, f)));
+        if(folders.includes(currentSelection)) folderSelect.value = currentSelection;
+        
+        loadFiles(folderSelect.value);
+    } catch (err) {
+        showError("Erro de conexão ao carregar pastas.");
+    }
+}
+
+async function loadFiles(folder) {
+    try {
+        const res = await fetch(`/files?folder=${encodeURIComponent(folder)}`);
+        if (!res.ok) throw new Error();
+        const files = await res.json();
+        
+        serverFileList.innerHTML = files.length === 0 
+            ? '<li>Pasta vazia.</li>' 
+            : files.map(f => `<li>📄 ${f.name} <span style="color:#888">(${(f.size / 1024 / 1024).toFixed(2)} MB)</span></li>`).join('');
+    } catch (err) {
+        serverFileList.innerHTML = '<li style="color:red">Erro ao ler arquivos.</li>';
+    }
+}
+
+folderSelect.addEventListener('change', () => loadFiles(folderSelect.value));
+
+createFolderBtn.addEventListener('click', async () => {
+    const folderName = newFolderInput.value.trim();
+    if (!folderName) return;
+    try {
+        const res = await fetch('/folders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folderName })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            newFolderInput.value = '';
+            await loadFolders();
+            folderSelect.value = data.folder;
+            loadFiles(data.folder);
+            status.textContent = 'Pasta criada!';
+        } else {
+            showError(data.error);
+        }
+    } catch (err) {
+        showError('Erro de rede ao criar pasta.');
+    }
+});
+
+fileInput.addEventListener('change', () => {
+    fileList.textContent = fileInput.files.length > 0 
+        ? `${fileInput.files.length} arquivo(s) preparado(s).` : 'Nenhum';
+});
+
+// Função de utilidade para mensagens de erro
+function showError(msg) {
+    status.textContent = msg;
+    status.style.color = 'red';
+    uploadBtn.disabled = false;
+}
+
+async function uploadChunkWithRetry(formData, chunkIndex, maxRetries = 3) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            const response = await fetch('/upload-chunk', { method: 'POST', body: formData });
+            const result = await response.json();
+            
+            if (!response.ok) throw new Error(result.error || 'Erro no servidor');
+            return true; 
+        } catch (error) {
+            console.warn(`Falha no chunk ${chunkIndex}, tentativa ${attempt + 1}/${maxRetries}. Erro: ${error.message}`);
+            if (attempt === maxRetries - 1) throw error; 
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Backoff exponencial
+        }
+    }
+}
+
+async function uploadFileInChunks(file, selectedFolder) {
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uniqueFileName = file.name; 
+
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('chunkIndex', chunkIndex);
+        formData.append('totalChunks', totalChunks);
+        formData.append('fileName', uniqueFileName);
+        formData.append('folder', selectedFolder);
+        formData.append('fileSize', file.size); // Enviado para validação
+
+        await uploadChunkWithRetry(formData, chunkIndex);
+
+        const percent = Math.round(((chunkIndex + 1) / totalChunks) * 100);
+        progressBar.style.width = percent + '%';
+        status.textContent = `Enviando ${file.name}... ${percent}%`;
+    }
+}
+
+uploadBtn.addEventListener('click', async () => {
+    const files = fileInput.files;
+    if (files.length === 0) return alert('Selecione arquivos!');
+
+    const selectedFolder = folderSelect.value;
+    progressContainer.style.display = 'block';
+    uploadBtn.disabled = true;
+
+    for (let i = 0; i < files.length; i++) {
+        progressBar.style.width = '0%';
+        status.style.color = '#333';
+        
+        try {
+            await uploadFileInChunks(files[i], selectedFolder);
+        } catch (error) {
+            showError(`Erro fatal no envio de ${files[i].name}: ${error.message}`);
+            return; 
+        }
+    }
+
+    status.textContent = 'Todos os arquivos enviados com sucesso!';
+    status.style.color = '#28a745';
+    fileInput.value = '';
+    fileList.textContent = 'Nenhum arquivo selecionado';
+    uploadBtn.disabled = false;
+    loadFiles(selectedFolder); // Atualiza a lista na tela
+});
+
+loadFolders();
+    </script>
+</body>
+</html>
