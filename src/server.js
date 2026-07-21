@@ -145,6 +145,40 @@ app.post('/upload-chunk', upload.single('chunk'), async (req, res) => {
     }
 });
 
+// Rota de download
+app.get('/download', (req, res) => {
+    const folder = req.query.folder || '';
+    const rawFileName = req.query.file;
+    
+    if (!rawFileName) return res.status(400).json({ error: 'Nome do arquivo não informado.' });
+    
+    // Sanitiza o nome do arquivo (previne path traversal)
+    const safeFileName = path.basename(rawFileName);
+    const safeFolder = getSafeFolderPath(folder);
+    
+    if (!safeFolder.startsWith(baseUploadDir)) {
+        return res.status(403).json({ error: 'Acesso negado.' });
+    }
+    
+    const filePath = path.join(safeFolder, safeFileName);
+    
+    // Verifica se realmente existe e está dentro do diretório base
+    if (!fs.existsSync(filePath) || !filePath.startsWith(baseUploadDir)) {
+        return res.status(404).json({ error: 'Arquivo não encontrado.' });
+    }
+    
+    // Envia o arquivo para download (com o nome original, sem caminho)
+    res.download(filePath, safeFileName, (err) => {
+        if (err) {
+            console.error('Erro no download:', err);
+            // res.download já trata a maioria dos erros, mas podemos capturar
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Erro ao enviar arquivo.' });
+            }
+        }
+    });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
