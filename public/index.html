@@ -96,9 +96,20 @@ async function loadFiles(folder) {
         if (!res.ok) throw new Error();
         const files = await res.json();
         
+        const currentFolder = folder; // já é o valor selecionado
+        
         serverFileList.innerHTML = files.length === 0 
             ? '<li>Pasta vazia.</li>' 
-            : files.map(f => `<li>📄 ${f.name} <span style="color:#888">(${(f.size / 1024 / 1024).toFixed(2)} MB)</span></li>`).join('');
+            : files.map(f => {
+                const encodedFolder = encodeURIComponent(currentFolder);
+                const encodedFile = encodeURIComponent(f.name);
+                const downloadUrl = `/download?folder=${encodedFolder}&file=${encodedFile}`;
+                return `<li>
+                    📄 ${f.name} 
+                    <span style="color:#888">(${(f.size / 1024 / 1024).toFixed(2)} MB)</span>
+                    <a href="${downloadUrl}" download title="Download" style="margin-left:10px; text-decoration:none;">⬇️</a>
+                </li>`;
+              }).join('');
     } catch (err) {
         serverFileList.innerHTML = '<li style="color:red">Erro ao ler arquivos.</li>';
     }
